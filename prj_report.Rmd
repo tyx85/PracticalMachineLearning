@@ -1,0 +1,111 @@
+---
+title: "Project Report"
+output: html_document
+---
+## Introduction
+The aim of this project is to use data that are capture by various devices such as Jawbone Up, Nike FuelBand and Fitbit from accelerometers on the belt, forearm, arm and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+## Data Analysis
+This section will explore, analyse and clean the data that was provided. 
+
+### Loading of Library
+To perform data analysis and to create a model, the following libraries will be used to assist in the mention tasks
+```{r loadLibrary ,warning=FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(foreach)
+library(doParallel)
+```
+
+### Downloading of Data
+Getting the train and test data for data modelling
+```{r downloadData}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "pml-training.csv"
+testFile  <- "pml-testing.csv"
+download.file(trainUrl, destfile=trainFile, method="curl")
+download.file(testUrl, destfile=testFile, method="curl")
+```
+
+### Reading the data
+Analysing the data to verify if there is any outlier data or if there is any data that needs to be clean up before the model can be build. 
+```{r readData}
+trainData <- read.csv("pml-training.csv")
+testData <- read.csv("pml-testing.csv")
+dim(trainData)
+dim(testData)
+```
+Based on the above result, the training data consists of 19,622 observations with 160 variables and the test data consists 20 observations and 160 variables. The predictor variable is "classe" which means this is the outcome that needs to be predicted.
+
+### Cleaning the data
+After analysing the data set, missing values and meaningless varables are removed away to have a clean set of data for modelling
+```{r cleanData}
+## Removing NA values
+sum(complete.cases(trainData))
+trainData <- trainData[, colSums(is.na(trainData)) == 0] 
+testData <- testData[, colSums(is.na(testData)) == 0] 
+## Removing meaningless columns
+classe <- trainData$classe
+trainColRemove <- grepl("^X|timestamp|window", names(trainData))
+trainData <- trainData[, !trainColRemove]
+trainCleaned <- trainData[, sapply(trainData, is.numeric)]
+trainCleaned$classe <- classe
+testColRemove <- grepl("^X|timestamp|window", names(testData))
+testData <- testData[, !testColRemove]
+testCleaned <- testData[, sapply(testData, is.numeric)]
+## Analysis the data set after cleaning to verify that the dataset are as expected
+dim(trainCleaned)
+dim(testCleaned)
+```
+Based on the cleaned data set, the training data consists of 19,622 observations with 53 variables, while the testing data consist of 20 observations with 53 variables. 
+
+### Creating data set
+To verify and test the predictive model that is being built, the cleaned training data set is split into 70% (training data) and 30% (validation data).
+```{r createData}
+set.seed(22519) # For reproducibile purpose
+splitData <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainNewData <- trainCleaned[splitData, ]
+testNewData <- trainCleaned[-splitData, ]
+```
+
+## Data Modelling
+By using the Random Forest to create the predictive model, the algorithm helps to select the important variables from the data set that is used. Since it has a huge data set, it is recommended to split the data set up using 5 random forest. Futhermore, parallel processing is being used here to speed up the modelling process.
+```{r predictiveModel}
+registerDoParallel()
+x <- trainNewData[-ncol(trainNewData)]
+y <- trainNewData$classe
+ 
+predictiveModelling <- foreach(ntree=rep(150, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+   randomForest(x, y, ntree=ntree) 
+}
+predictionsTrain <- predict(predictiveModelling, newdata=trainNewData)
+confusionMatrix(predictionsTrain,trainNewData$classe)
+```
+After building the model, it is require to use the newly created test dataset to check the model.
+```{r crossCheck}
+predictionsTest <- predict(predictiveModelling, newdata=testNewData)
+confusionMatrix(predictionsTest,testNewData$classe)
+```
+The estimated accuracy for both training and validation data set are 99% and the estimated out-of-sample error is about 0.60%
+
+## Predict Test Data Set
+After building the model, the model can be used to predict the original test data set. This section is used to prepare the submission for assignment. 
+```{r predictTestData}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+answers <- predict(predictiveModelling, newdata=testCleaned)
+
+answers
+
+pml_write_files(answers)
+```
+
